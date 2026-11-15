@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ashfall Compound — a round-based tactical FPS</title>
+<style>
+  /* Look plan: every colour below is one of the palette's names, shared with the 3D scene. */
+  :root {
+    --canvas: #101317;
+    --surface: #1b2028;
+    --hairline: #2a313b;
+    --ink: #e8e5de;
+    --muted: #8f99a4;
+    --accent: #e9a13b;
+    --ally: #4fa3e0;
+    --enemy: #d9534a;
+    --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-readout: ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--canvas); color: var(--ink); font-family: var(--font-ui); -webkit-user-select: none; user-select: none; }
+  #game, #game canvas { position: fixed; inset: 0; display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+
+  /* crosshair: four ticks that open with movement */
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 26px; height: 26px; transform: translate(-50%, -50%); transition: transform 90ms ease-out; }
+  #crosshair i { position: absolute; background: var(--ink); opacity: .9; }
+  #crosshair i:nth-child(1) { left: 12px; top: 0; width: 2px; height: 8px; }
+  #crosshair i:nth-child(2) { left: 12px; bottom: 0; width: 2px; height: 8px; }
+  #crosshair i:nth-child(3) { top: 12px; left: 0; height: 2px; width: 8px; }
+  #crosshair i:nth-child(4) { top: 12px; right: 0; height: 2px; width: 8px; }
+  #crosshair.wide { transform: translate(-50%, -50%) scale(1.55); }
+  #crosshair.hit i { background: var(--accent); }
+
+  /* damage vignette */
+  #hurt { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 220ms ease-out;
+    box-shadow: inset 0 0 140px 40px rgba(217, 83, 74, .65); }
+  #hurt.on { opacity: 1; transition: none; }
+
+  /* scoreboard, top centre */
+  #scorebar {
+    position: fixed; left: 50%; top: 14px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 14px;
+    padding: 7px 16px; border-radius: 999px;
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    border: 1px solid var(--hairline);
+    font-family: var(--font-readout); font-size: 15px; letter-spacing: .02em;
+  }
+  #scorebar .ally { color: var(--ally); font-weight: 700; }
+  #scorebar .enemy { color: var(--enemy); font-weight: 700; }
+  #scorebar .clock { min-width: 46px; text-align: center; color: var(--ink); }
+  #scorebar .round { color: var(--muted); font-size: 12px; }
+
+  /* ammo, bottom right */
+  #ammo { position: fixed; right: 28px; bottom: 20px; display: flex; align-items: baseline; gap: 8px;
+    font-family: var(--font-readout); font-size: 52px; line-height: 1; letter-spacing: -0.03em; }
+  #ammo.empty #ammo-mag { color: var(--enemy); }
+  #ammo-reserve { font-size: 15px; color: var(--muted); }
+  #weapon-name { position: fixed; right: 30px; bottom: 80px; font-family: var(--font-readout); font-size: 12px;
+    color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+
+  /* health and credits, bottom left */
+  #vitals { position: fixed; left: 28px; bottom: 20px; font-family: var(--font-readout); }
+  #health { font-size: 44px; line-height: 1; letter-spacing: -0.03em; }
+  #health.low { color: var(--enemy); }
+  #credits { margin-top: 6px; font-size: 14px; color: var(--accent); }
+  #alive { margin-top: 4px; font-size: 12px; color: var(--muted); }
+
+  /* kill feed */
+  #feed { position: fixed; right: 28px; top: 68px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end;
+    font-family: var(--font-readout); font-size: 12.5px; }
+  #feed div { background: color-mix(in srgb, var(--surface) 85%, transparent); border: 1px solid var(--hairline);
+    padding: 3px 9px; border-radius: 3px; color: var(--muted); animation: fade 3.4s forwards; }
+  #feed b { color: var(--ink); font-weight: 600; }
+  @keyframes fade { 0%,70% { opacity: 1; } 100% { opacity: 0; } }
+
+  /* buy menu */
+  #buy { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px;
+    background: color-mix(in srgb, var(--canvas) 88%, transparent); pointer-events: auto; }
+  #buy[hidden] { display: none; }
+  .panel { width: min(560px, 100%); padding: 26px 28px; background: var(--surface);
+    border: 1px solid var(--hairline); border-radius: 6px; }
+  .panel h1 { margin: 0 0 4px; font-size: 20px; letter-spacing: -0.01em; }
+  .panel p.lead { margin: 0 0 18px; color: var(--muted); font-size: 13.5px; }
+  .guns { display: grid; gap: 8px; }
+  .gun { display: flex; align-items: center; gap: 12px; padding: 10px 12px; cursor: pointer;
+    background: var(--canvas); border: 1px solid var(--hairline); border-radius: 4px;
+    color: var(--ink); font: inherit; text-align: left; }
+  .gun:hover:not(:disabled) { border-color: var(--accent); }
+  .gun:disabled { opacity: .45; cursor: not-allowed; }
+  .gun .n { flex: 1; font-weight: 600; font-size: 14px; }
+  .gun .stat { font-family: var(--font-readout); font-size: 11.5px; color: var(--muted); }
+  .gun .cost { font-family: var(--font-readout); font-size: 14px; color: var(--accent); min-width: 62px; text-align: right; }
+  .panel .hint { margin: 16px 0 0; font-size: 12.5px; color: var(--muted); font-family: var(--font-readout); }
+
+  /* round / match overlay */
+  #overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px;
+    background: color-mix(in srgb, var(--canvas) 84%, transparent); pointer-events: auto; }
+  #overlay[hidden] { display: none; }
+  #overlay h1 { margin: 0 0 8px; font-size: 26px; letter-spacing: -0.015em; }
+  #overlay p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
+  #overlay .keys { margin-top: 18px; font-family: var(--font-readout); font-size: 12.5px; color: var(--muted); line-height: 1.9; }
+  #overlay .keys b { color: var(--ink); font-weight: 600; }
+  #play { margin-top: 20px; padding: 11px 22px; font: inherit; font-size: 15px; font-weight: 600;
+    background: var(--accent); color: #241703; border: 0; border-radius: 4px; cursor: pointer; }
+  #play:hover { filter: brightness(1.08); }
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="hud">
+  <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+  <div id="hurt"></div>
+
+  <div id="scorebar">
+    <span class="ally" id="ally-score">0</span>
+    <span class="clock" id="clock">1:30</span>
+    <span class="enemy" id="enemy-score">0</span>
+    <span class="round" id="round-no">R1</span>
+  </div>
+
+  <div id="feed"></div>
+
+  <div id="vitals">
+    <div id="health">100</div>
+    <div id="credits">$800</div>
+    <div id="alive">5 enemies</div>
+  </div>
+
+  <div id="weapon-name">MK3 Sidearm</div>
+  <div id="ammo"><span id="ammo-mag">12</span><span id="ammo-reserve">48</span></div>
+</div>
+
+<div id="buy" hidden>
+  <div class="panel">
+    <h1 id="buy-title">Buy phase</h1>
+    <p class="lead">Pick a weapon. Credits carry over; you keep what you buy.</p>
+    <div class="guns" id="guns"></div>
+    <p class="hint">1–4 to buy · Enter to start the round</p>
+  </div>
+</div>
+
+<div id="overlay">
+  <div class="panel">
+    <h1 id="overlay-title">Ashfall Compound</h1>
+    <p id="overlay-copy">Five hostiles hold the north side. Clear them to take the round. Four rounds win the match.</p>
+    <div class="keys">
+      <b>WASD</b> move &nbsp; <b>Mouse</b> aim &nbsp; <b>Click</b> fire<br>
+      <b>R</b> reload &nbsp; <b>Shift</b> walk (steadier aim) &nbsp; <b>Ctrl</b> crouch<br>
+      <b>Right-click</b> scope &nbsp; <b>1–4</b> buy in the buy phase &nbsp; <b>Esc</b> pause
+    </div>
+    <button id="play">Click to play</button>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js"
+  }
+}
+</script>
+<script>
+/* If the module graph fails to boot (an old browser without import-map support, a blocked
+   vendored file), say so on the page instead of leaving a blank screen behind the overlay. */
+window.addEventListener('error', function (e) {
+  if (window.__shotReady !== undefined) return;
+  var box = document.getElementById('overlay-copy');
+  if (box) box.textContent = 'This browser could not start WebGL2 or load the game modules: ' + (e.message || 'unknown error');
+});
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

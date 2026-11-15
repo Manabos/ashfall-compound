@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ashfall Compound — device check</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 22px 18px 48px;
+    background: #101317; color: #e8e5de;
+    font: 15px/1.55 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+  h1 { font-size: 19px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  p.lead { margin: 0 0 20px; color: #8f99a4; font-size: 13.5px; }
+  .row {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 11px 13px; margin-bottom: 8px;
+    background: #1b2028; border: 1px solid #2a313b; border-radius: 6px;
+  }
+  .mark { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 14px; min-width: 18px; }
+  .ok .mark { color: #4ac97e; }
+  .bad .mark { color: #e05a50; }
+  .warn .mark { color: #f2a93b; }
+  .what { flex: 1; min-width: 0; }
+  .what b { display: block; font-size: 14px; font-weight: 600; }
+  .what span { color: #8f99a4; font-size: 12.5px; word-break: break-word; }
+  .verdict { margin-top: 20px; padding: 14px 16px; border-radius: 6px; font-size: 14.5px; line-height: 1.6; }
+  .verdict.good { background: #12301f; border: 1px solid #2c6b45; }
+  .verdict.bad { background: #301614; border: 1px solid #6b2c28; }
+  .verdict a {
+    display: inline-block; margin-top: 12px; padding: 11px 20px;
+    background: #f2a93b; color: #241703; font-weight: 700; font-size: 15px;
+    border-radius: 6px; text-decoration: none;
+  }
+  .verdict a.hidden { display: none; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; background: #101317; padding: 1px 5px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>Can this device run it?</h1>
+<p class="lead">Ashfall Compound needs WebGL2 and a keyboard. This page checks the device, not the game.</p>
+
+<div id="checks"></div>
+<div id="verdict" class="verdict" hidden></div>
+
+<script>
+(function () {
+  var checks = document.getElementById('checks');
+
+  function row(state, mark, title, detail) {
+    var el = document.createElement('div');
+    el.className = 'row ' + state;
+    el.innerHTML = '<div class="mark">' + mark + '</div>' +
+      '<div class="what"><b>' + title + '</b><span>' + detail + '</span></div>';
+    checks.appendChild(el);
+  }
+
+  // 1. WebGL2 — the one that actually decides it
+  var gl2 = null;
+  try {
+    var c = document.createElement('canvas');
+    gl2 = c.getContext('webgl2');
+  } catch (e) { gl2 = null; }
+  if (gl2) {
+    var dbg = gl2.getExtension('WEBGL_debug_renderer_info');
+    var gpu = dbg ? gl2.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl2.getParameter(gl2.RENDERER);
+    row('ok', '✓', 'WebGL2 available', String(gpu).slice(0, 90));
+  } else {
+    row('bad', '✕', 'WebGL2 NOT available', 'This browser cannot render the game at all.');
+  }
+
+  // 2. WebGL1 fallback signal, for context
+  var gl1 = false;
+  try { gl1 = !!document.createElement('canvas').getContext('webgl'); } catch (e) { gl1 = false; }
+  row(gl1 ? 'ok' : 'warn', gl1 ? '✓' : '!', 'WebGL1', gl1 ? 'present' : 'absent');
+
+  // 3. pointer lock — the game grabs the mouse with it
+  var lock = typeof document.body.requestPointerLock === 'function';
+  row(lock ? 'ok' : 'warn', lock ? '✓' : '!', 'Pointer lock',
+      lock ? 'available' : 'not available — the mouse camera will not work');
+
+  // 4. a keyboard, which a phone does not have
+  var touch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  var narrow = window.innerWidth < 700;
+  row(touch ? 'warn' : 'ok', touch ? '!' : '✓', 'Input device',
+      touch ? 'touch screen detected — this game expects WASD and a mouse' : 'no touch screen: looks like a desktop');
+
+  // 5. screen size, since the HUD is laid out for a wide viewport
+  row(narrow ? 'warn' : 'ok', narrow ? '!' : '✓', 'Viewport',
+      window.innerWidth + ' × ' + window.innerHeight + (narrow ? ' (narrow)' : ''));
+
+  var verdict = document.getElementById('verdict');
+  verdict.hidden = false;
+  if (gl2 && !touch) {
+    verdict.className = 'verdict good';
+    verdict.innerHTML = 'This device should run it. Tap play below.' +
+      '<a href="./">Play Ashfall Compound</a>';
+  } else if (gl2 && touch) {
+    verdict.className = 'verdict good';
+    verdict.innerHTML = 'The graphics work, but this is a touch device: the game needs a keyboard ' +
+      '(WASD + mouse). It will load, but you cannot play it here. Open this page on a computer.' +
+      '<a class="hidden" href="./">Play</a>';
+  } else {
+    verdict.className = 'verdict bad';
+    verdict.innerHTML = 'This device cannot render the game: no WebGL2. Nothing on the page will ' +
+      'draw, which is why it looks blank. Open it on a computer with Chrome, Edge or Firefox.';
+  }
+})();
+</script>
+</body>
+</html>
